@@ -2,18 +2,9 @@ import express from "express";
 import path from "path";
 import cors from "cors";
 import { createServer as createViteServer } from "vite";
-import yahooFinance from "yahoo-finance2";
-// Handle yahoo-finance2 initialization to avoid "Call new YahooFinance() first" error
+import YahooFinance from "yahoo-finance2";
 // @ts-ignore
-const yahoo = (function() {
-  if (yahooFinance && (yahooFinance as any).YahooFinance) {
-    return new (yahooFinance as any).YahooFinance();
-  }
-  if (typeof yahooFinance === "function") {
-    return new (yahooFinance as any)();
-  }
-  return yahooFinance;
-})();
+const yahoo = new YahooFinance();
 import { RSI, SMA } from "technicalindicators";
 import axios from "axios";
 import dotenv from "dotenv";
@@ -33,7 +24,7 @@ const ai = new GoogleGenAI({
 });
 
 const app = express();
-const PORT = 3690;
+const PORT = 3000;
 
 app.use(cors());
 app.use(express.json());
@@ -308,9 +299,17 @@ async function monitorMarkets() {
   
   for (const symbol of WATCHLIST) {
     try {
-      const history = (await yahoo.historical(symbol, { 
-        period1: new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0]
-      })) as any[];
+      const date = new Date();
+      date.setDate(date.getDate() - 45); // 45 days ago
+      const period1 = date.toISOString().split('T')[0];
+      
+      // Using chart() instead of historical() as it often behaves better with international tickers
+      const chartResult = (await yahoo.chart(symbol, { 
+        period1, 
+        interval: '1d' 
+      }, { validateOptions: false })) as any;
+      
+      const history = chartResult.quotes;
       
       if (!history || history.length < 20) {
         continue;
