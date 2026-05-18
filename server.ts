@@ -2,7 +2,8 @@ import express from "express";
 import path from "path";
 import cors from "cors";
 import { createServer as createViteServer } from "vite";
-import yahoo from "yahoo-finance2";
+import YahooFinance from "yahoo-finance2";
+const yahoo = new YahooFinance();
 import { RSI, SMA } from "technicalindicators";
 import axios from "axios";
 import dotenv from "dotenv";
@@ -22,7 +23,7 @@ const ai = new GoogleGenAI({
 });
 
 const app = express();
-const PORT = 3000;
+const PORT = Number(process.env.PORT) || 3000;
 
 app.use(cors());
 app.use(express.json());
@@ -337,13 +338,10 @@ async function monitorMarkets() {
       date.setDate(date.getDate() - 45); // 45 days ago
       const period1 = date.toISOString().split('T')[0];
       
-      // Using chart() instead of historical() as it often behaves better with international tickers
-      const chartResult = (await yahoo.chart(symbol, { 
+      const history = (await yahoo.historical(symbol, { 
         period1, 
         interval: '1d' 
-      }, { validateOptions: false })) as any;
-      
-      const history = chartResult.quotes;
+      })) as any[];
       
       if (!history || history.length < 20) {
         continue;
