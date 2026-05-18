@@ -51,7 +51,12 @@ async function getAIAnalysis(data: {
       market_mood: 'Pasar sedang tenang',
       risk_level: 'MEDIUM',
       volume_condition: data.volume > data.avgVolume20 ? 'Ramai' : 'Biasa saja',
-      analysis: `Analisis untuk ${data.symbol}. RSI berada di ${data.rsi.toFixed(1)}. Belum ada data AI mendalam.`,
+      analysis: {
+        kondisi: 'Pasar sedang tenang dan belum ada pergerakan mencolok.',
+        momentum: 'Pembeli dan penjual masih sama-sama menunggu.',
+        risiko: 'Risiko sedang karena belum ada konfirmasi arah.',
+        kesimpulan: 'Pantau saja dulu, jangan buru-buru masuk.'
+      },
       reason: ["Indikator RSI menunjukkan area tertentu", "SMA 20 sebagai acuan"],
       warning: "Gunakan analisis mandiri karena otak AI sedang offline."
     };
@@ -85,6 +90,12 @@ async function getAIAnalysis(data: {
         Anda adalah pengamat market cerdas "MarketGuard AI" yang memantau market global (NASDAQ, NYSE, Crypto) dan Indonesia (IDX).
         Tugas Anda adalah membaca suasana market seperti membaca keramaian pasar nyata dan menjelaskannya dengan bahasa manusia yang SANGAT SEDERHANA.
 
+        STRUKTUR OUTPUT WAJIB:
+        1. KONDISI PASAR: Jelaskan suasana market saat ini (ramai, sepi, panik, optimis).
+        2. BUYER VS SELLER: Siapa yang sedang dominan dan apa yang mereka lakukan.
+        3. RISIKO: Berikan penilaian keamanan (aman, bahaya, perlu waspada).
+        4. KESIMPULAN: Berikan saran tindakan sederhana untuk user.
+
         ATURAN UTAMA:
         1. JANGAN gunakan istilah teknikal (RSI, EMA, SMA, breakout, resistance, support, overbought, oversold).
         2. GUNAKAN BAHASA PASAR NYATA. Fokus pada kekuatan "Pembeli" (Buyer) vs "Penjual" (Seller), keramaian market, dan emosi trader.
@@ -92,24 +103,10 @@ async function getAIAnalysis(data: {
         4. ANALOGI & FRASA:
            - "Pembeli mulai ramai masuk."
            - "Penjual mulai menekan harga."
-           - "Saham mulai diborong perlahan."
-           - "Pasar masih sepi dan belum ada arah jelas."
-           - "Pergerakan mulai panas."
-           - "Harga mulai naik seperti barang yang mulai diperebutkan."
+           - "Pasar sedang panas oleh aksi jual besar."
+           - "Penjual masih dominan, tetapi mulai muncul pembeli."
+           - "Belum ideal untuk masuk agresif."
            - "Volume transaksi meningkat seperti pasar yang tiba-tiba ramai."
-           - "Buyer terlihat lebih kuat daripada seller."
-           - "Mulai ada tanda pengumpulan barang."
-           - "Pasar global sedang takut dan banyak trader memilih keluar."
-           - "Crypto sedang sangat liar dan penuh emosi."
-           - "Saham teknologi Amerika mulai ramai diburu trader."
-
-        5. SKENARIO KHUSUS:
-           - Jika market kuat: "Pembeli masuk agresif dan penjual mulai kesulitan menahan harga."
-           - Jika market bahaya: "Harga terlihat naik, tetapi tenaga pembeli belum cukup kuat. Risiko dibalik turun masih besar."
-           - Jika market panas: "Pasar sedang ramai seperti rebutan barang saat diskon besar."
-           - Jika market sepi: "Trader masih menunggu dan belum banyak yang berani masuk."
-
-        6. PRIORITAS: Cari tanda panic sell, akumulasi (borong pelan), momentum besar, atau jebakan market.
 
         Output HARUS JSON VALID:
         {
@@ -117,12 +114,17 @@ async function getAIAnalysis(data: {
           "signal": "BUY" | "SELL" | "WATCH" | "HIGH_RISK",
           "confidence": number (50-95),
           "trend": "bullish" | "bearish" | "sideways",
-          "market_mood": string (singkat, bahasa pasar),
+          "market_mood": string (singkat, MAKSIMAL 3 KATA),
           "risk_level": "LOW" | "MEDIUM" | "HIGH",
-          "volume_condition": string (singkat, bahasa pasar),
-          "analysis": string (Gunakan bahasa pasar sederhana, 1-2 kalimat),
-          "reason": string[] (Alasan simpel tanpa istilah teknis),
-          "warning": string (Pesan waspada simpel)
+          "volume_condition": string (singkat),
+          "analysis": {
+            "kondisi": string,
+            "momentum": string,
+            "risiko": string,
+            "kesimpulan": string
+          },
+          "reason": string[],
+          "warning": string
         }
         `,
         responseMimeType: "application/json",
@@ -136,7 +138,16 @@ async function getAIAnalysis(data: {
             market_mood: { type: Type.STRING },
             risk_level: { type: Type.STRING, enum: ["LOW", "MEDIUM", "HIGH"] },
             volume_condition: { type: Type.STRING },
-            analysis: { type: Type.STRING },
+            analysis: {
+              type: Type.OBJECT,
+              properties: {
+                kondisi: { type: Type.STRING },
+                momentum: { type: Type.STRING },
+                risiko: { type: Type.STRING },
+                kesimpulan: { type: Type.STRING }
+              },
+              required: ["kondisi", "momentum", "risiko", "kesimpulan"]
+            },
             reason: { type: Type.ARRAY, items: { type: Type.STRING } },
             warning: { type: Type.STRING }
           },
@@ -203,7 +214,12 @@ interface Alert {
   marketMood: string;
   riskLevel: 'LOW' | 'MEDIUM' | 'HIGH';
   volumeCondition: string;
-  aiAnalysis: string;
+  aiAnalysis: {
+    kondisi: string;
+    momentum: string;
+    risiko: string;
+    kesimpulan: string;
+  };
   reasons: string[];
   warning: string;
 }
@@ -409,14 +425,19 @@ async function monitorMarkets() {
           marketMood: aiResult.market_mood || 'Neutral',
           riskLevel: aiResult.risk_level || 'MEDIUM',
           volumeCondition: aiResult.volume_condition || 'Normal',
-          aiAnalysis: aiResult.analysis || 'Analysis pending...',
+          aiAnalysis: aiResult.analysis || {
+            kondisi: 'Sedang dianalisa...',
+            momentum: 'Menunggu data...',
+            risiko: 'Sedang mengevaluasi...',
+            kesimpulan: 'Tunggu sebentar...'
+          },
           reasons: aiResult.reason || [],
           warning: aiResult.warning || 'No specific warning.'
         };
 
         alertHistory.unshift(newAlert);
         alertHistory = alertHistory.slice(0, 50);
-        await sendTelegram(`${alertMsg}\n\n*AI Analisis:* ${newAlert.aiAnalysis}\n\n*Mood:* ${newAlert.marketMood}\n*Confidence:* ${newAlert.confidence}%`);
+        await sendTelegram(`${alertMsg}\n\n*KONDISI PASAR*\n${newAlert.aiAnalysis.kondisi}\n\n*BUYER VS SELLER*\n${newAlert.aiAnalysis.momentum}\n\n*RISIKO*\n${newAlert.aiAnalysis.risiko}\n\n*KESIMPULAN*\n${newAlert.aiAnalysis.kesimpulan}\n\n*Mood:* ${newAlert.marketMood}\n*Confidence:* ${newAlert.confidence}%`);
       }
       
       // Delay between Yahoo Finance calls (0.5s) to be very safe

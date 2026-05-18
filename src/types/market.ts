@@ -21,7 +21,12 @@ export interface Alert {
   marketMood: string;
   riskLevel: 'LOW' | 'MEDIUM' | 'HIGH';
   volumeCondition: string;
-  aiAnalysis: string;
+  aiAnalysis: {
+    kondisi: string;
+    momentum: string;
+    risiko: string;
+    kesimpulan: string;
+  };
   reasons: string[];
   warning: string;
 }
