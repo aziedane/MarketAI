@@ -33,7 +33,7 @@ const ai = new GoogleGenAI({
 });
 
 const app = express();
-const PORT = 3000;
+const PORT = 3690;
 
 app.use(cors());
 app.use(express.json());

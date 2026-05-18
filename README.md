@@ -50,7 +50,7 @@ npm run build
 ```
 
 ### 4. Menjalankan Aplikasi
-Setelah build selesai, Anda bisa menjalankan server menggunakan script `start`. Aplikasi akan berjalan di port **3000** secara default (`http://localhost:3000`).
+Setelah build selesai, Anda bisa menjalankan server menggunakan script `start`. Aplikasi akan berjalan di port **3690** secara default (`http://localhost:3690`).
 ```bash
 npm start
 ```
