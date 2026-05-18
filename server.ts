@@ -2,9 +2,7 @@ import express from "express";
 import path from "path";
 import cors from "cors";
 import { createServer as createViteServer } from "vite";
-import YahooFinance from "yahoo-finance2";
-// @ts-ignore
-const yahoo = new YahooFinance();
+import yahoo from "yahoo-finance2";
 import { RSI, SMA } from "technicalindicators";
 import axios from "axios";
 import dotenv from "dotenv";
