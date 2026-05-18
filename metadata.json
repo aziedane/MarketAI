@@ -1,0 +1,6 @@
+{
+  "name": "MarketGuard AI",
+  "description": "Stock monitoring with technical analysis and Telegram alerts for IDR and Global markets.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
