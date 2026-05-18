@@ -29,7 +29,10 @@ const PORT = 3000;
 app.use(cors());
 app.use(express.json());
 
-// Helper: AI Market Analyst Brain
+// Helper: AI Market Analyst Brain with Rate Limiting and Retry
+let lastAICallTime = 0;
+const MIN_AI_INTERVAL = 15000; // 15 seconds between calls to stay under 5 RPM limit
+
 async function getAIAnalysis(data: {
   symbol: string;
   price: number;
@@ -38,7 +41,7 @@ async function getAIAnalysis(data: {
   volume: number;
   avgVolume20: number;
   type: string;
-}): Promise<any> {
+}, retryCount = 0): Promise<any> {
   if (!process.env.GEMINI_API_KEY) {
     console.warn("GEMINI_API_KEY not found. Using fallback analysis.");
     return {
@@ -54,7 +57,15 @@ async function getAIAnalysis(data: {
     };
   }
 
+  // Enforce minimum interval
+  const timeSinceLastCall = Date.now() - lastAICallTime;
+  if (timeSinceLastCall < MIN_AI_INTERVAL) {
+    const waitTime = MIN_AI_INTERVAL - timeSinceLastCall;
+    await new Promise(resolve => setTimeout(resolve, waitTime));
+  }
+
   try {
+    lastAICallTime = Date.now();
     const prompt = `
     Analisis teknikal untuk ${data.symbol}:
     - Harga: ${data.price}
@@ -141,8 +152,17 @@ async function getAIAnalysis(data: {
       console.error("AI JSON Parse Error:", parseErr, text);
       return null;
     }
-  } catch (err) {
-    console.error("Gemini Error:", err);
+  } catch (err: any) {
+    console.error("Gemini Error:", err?.message || err);
+    
+    // Handle Rate Limit (429) specifically
+    if (err?.status === 429 || err?.message?.includes("429") || err?.message?.includes("quota")) {
+      if (retryCount < 2) {
+        console.log(`Rate limited. retrying in 30s... (Attempt ${retryCount + 1})`);
+        await new Promise(resolve => setTimeout(resolve, 30000));
+        return getAIAnalysis(data, retryCount + 1);
+      }
+    }
     return null;
   }
 }
@@ -337,24 +357,29 @@ async function monitorMarkets() {
       let shouldCallAI = false;
 
       // Refined Technical Filters before calling AI
-      if (lastPrice > lastSMA20 && prevPrice <= lastSMA20 && lastVolume > avgVolume20 * 1.5) {
+      // 1. Breakout SMA 20 with high relative volume
+      if (lastPrice > lastSMA20 && prevPrice <= lastSMA20 && lastVolume > avgVolume20 * 2.0) {
         alertType = "BREAKOUT";
         alertMsg = `🚀 *Breakout SMA 20* on ${symbol}\nPrice: ${lastPrice.toFixed(2)}`;
         shouldCallAI = true;
-      } else if (lastRSI < 30) {
+      } 
+      // 2. Oversold with a volume climax check
+      else if (lastRSI < 25) { 
         alertType = "OVERSOLD";
         alertMsg = `📉 *Oversold Detect* on ${symbol}\nRSI: ${lastRSI.toFixed(1)}\nPrice: ${lastPrice.toFixed(2)}`;
-        shouldCallAI = lastVolume > avgVolume20 * 1.2; // Only call AI if volume is decent
-      } else if (lastVolume > avgVolume20 * 2.5) {
+        shouldCallAI = lastVolume > avgVolume20 * 1.5; 
+      } 
+      // 3. Extreme Volume Spike
+      else if (lastVolume > avgVolume20 * 4.0) {
         alertType = "VOL_SPIKE";
         alertMsg = `🔥 *Volume Spike* on ${symbol}\nVolume: ${(lastVolume / 1e6).toFixed(1)}M (Avg: ${(avgVolume20 / 1e6).toFixed(1)}M)`;
         shouldCallAI = true;
       }
 
       if (alertType && shouldCallAI) {
-        // Double check for duplicates (same symbol + same type in last hour)
+        // Stricter deduplication: same symbol in last 4 hours
         const recentDuplicate = alertHistory.find(
-          a => a.symbol === symbol && a.type === alertType && Date.now() - a.timestamp < 3600000
+          a => a.symbol === symbol && Date.now() - a.timestamp < 14400000
         );
         
         if (recentDuplicate) continue;
@@ -394,8 +419,8 @@ async function monitorMarkets() {
         await sendTelegram(`${alertMsg}\n\n*AI Analisis:* ${newAlert.aiAnalysis}\n\n*Mood:* ${newAlert.marketMood}\n*Confidence:* ${newAlert.confidence}%`);
       }
       
-      // Delay to avoid Yahoo Finance rate limiting
-      await new Promise(resolve => setTimeout(resolve, 300));
+      // Delay between Yahoo Finance calls (0.5s) to be very safe
+      await new Promise(resolve => setTimeout(resolve, 500));
 
     } catch (err) {
       console.error(`Error monitoring ${symbol}:`, err);
