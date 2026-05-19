@@ -591,6 +591,11 @@ app.get("/api/watchlist", (req, res) => {
   res.json(WATCHLIST);
 });
 
+app.post("/api/alerts/clear", (req, res) => {
+  alertHistory = [];
+  res.json({ status: "success", message: "Alert history cleared" });
+});
+
 // Start Loops
 setInterval(monitorMarkets, 300000); // Technical analysis every 5 mins
 setInterval(updateLivePrices, 15000); // Live price update every 15 secs

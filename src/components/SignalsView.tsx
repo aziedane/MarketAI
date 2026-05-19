@@ -1,11 +1,35 @@
 import { motion, AnimatePresence } from 'motion/react';
-import { TrendingUp, Zap, AlertTriangle, ChevronRight, BrainCircuit, Activity, ShieldCheck, X, BarChart2, Info } from 'lucide-react';
+import { TrendingUp, Zap, AlertTriangle, ChevronRight, BrainCircuit, Activity, ShieldCheck, X, BarChart2, Info, Trash2 } from 'lucide-react';
 import { useState } from 'react';
 import { Alert } from '@/types/market';
 import { cn, formatCurrency } from '@/lib/utils';
+import { marketService } from '@/services/marketService';
+import { useQueryClient } from '@tanstack/react-query';
 
 export function SignalsView({ alerts }: { alerts: Alert[] }) {
   const [selectedAlert, setSelectedAlert] = useState<Alert | null>(null);
+  const [isClearing, setIsClearing] = useState(false);
+  const [confirmClear, setConfirmClear] = useState(false);
+  const queryClient = useQueryClient();
+
+  const handleClear = async () => {
+    if (!confirmClear) {
+      setConfirmClear(true);
+      setTimeout(() => setConfirmClear(false), 3000);
+      return;
+    }
+    
+    setIsClearing(true);
+    try {
+      await marketService.clearAlerts();
+      queryClient.setQueryData(['alerts'], []);
+      setConfirmClear(false);
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setIsClearing(false);
+    }
+  };
 
   if (alerts.length === 0) {
     return (
@@ -38,6 +62,19 @@ export function SignalsView({ alerts }: { alerts: Alert[] }) {
           <p className="text-sm text-white/40 mt-1 font-sans">Analisa teknikal real-time dengan konfirmasi kecerdasan buatan.</p>
         </div>
         <div className="flex items-center gap-4 bg-white/5 p-2 rounded-2xl border border-white/5">
+          <button 
+            onClick={handleClear}
+            disabled={isClearing || alerts.length === 0}
+            className={cn(
+              "flex items-center gap-2 px-4 py-1.5 rounded-xl transition-all disabled:opacity-30 disabled:cursor-not-allowed group/clear",
+              confirmClear ? "bg-red-500 text-white animate-pulse" : "bg-red-500/10 text-red-500 hover:bg-red-500/20"
+            )}
+          >
+            <Trash2 className="w-3.5 h-3.5 group-hover/clear:rotate-12 transition-transform" />
+            <span className="text-[10px] font-bold uppercase tracking-wider">
+              {confirmClear ? 'Yakin?' : 'Bersihkan'}
+            </span>
+          </button>
           <div className="px-4 py-1.5 rounded-xl bg-black/40 border border-white/5">
             <div className="text-[9px] text-white/30 uppercase font-mono tracking-widest">Active Alerts</div>
             <div className="text-lg font-mono font-bold leading-none mt-1">{alerts.length}</div>

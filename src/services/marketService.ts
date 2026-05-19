@@ -19,5 +19,9 @@ export const marketService = {
   getWatchlist: async (): Promise<string[]> => {
     const { data } = await api.get('/watchlist');
     return data;
+  },
+  
+  clearAlerts: async (): Promise<void> => {
+    await api.post('/alerts/clear');
   }
 };
