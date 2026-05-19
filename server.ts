@@ -351,14 +351,15 @@ async function monitorMarkets() {
   
   for (const symbol of WATCHLIST) {
     try {
-      const date = new Date();
-      date.setDate(date.getDate() - 45); // 45 days ago
-      const period1 = date.toISOString().split('T')[0];
+      const period1 = new Date();
+      period1.setDate(period1.getDate() - 45); // 45 days ago
       
-      const history = (await yahoo.historical(symbol, { 
+      const chartResult = (await yahoo.chart(symbol, { 
         period1, 
         interval: '1d' 
-      }, { validateOptions: false })) as any[];
+      }, { validateOptions: false })) as any;
+      
+      const history = chartResult.quotes;
       
       if (!history || history.length < 20) {
         continue;
