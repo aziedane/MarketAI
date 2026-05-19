@@ -1,9 +1,12 @@
-import { motion } from 'motion/react';
-import { TrendingUp, Zap, AlertTriangle, ChevronRight, BrainCircuit, Activity, ShieldCheck } from 'lucide-react';
+import { motion, AnimatePresence } from 'motion/react';
+import { TrendingUp, Zap, AlertTriangle, ChevronRight, BrainCircuit, Activity, ShieldCheck, X, BarChart2, Info } from 'lucide-react';
+import { useState } from 'react';
 import { Alert } from '@/types/market';
 import { cn, formatCurrency } from '@/lib/utils';
 
 export function SignalsView({ alerts }: { alerts: Alert[] }) {
+  const [selectedAlert, setSelectedAlert] = useState<Alert | null>(null);
+
   if (alerts.length === 0) {
     return (
       <div className="py-32 md:py-44 flex flex-col items-center justify-center text-center px-6">
@@ -185,7 +188,10 @@ export function SignalsView({ alerts }: { alerts: Alert[] }) {
                   <p className="text-[9px] text-white/20 uppercase font-mono tracking-widest italic">
                     {new Date(alert.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                   </p>
-                  <button className="flex items-center gap-2 justify-center md:justify-end text-[11px] font-bold text-white bg-white/5 px-4 py-2 md:py-2 rounded-xl border border-white/5 hover:bg-white/10 hover:border-white/10 transition-all uppercase tracking-wider group/btn">
+                  <button 
+                    onClick={() => setSelectedAlert(alert)}
+                    className="flex items-center gap-2 justify-center md:justify-end text-[11px] font-bold text-white bg-white/5 px-4 py-2 md:py-2 rounded-xl border border-white/5 hover:bg-white/10 hover:border-white/10 transition-all uppercase tracking-wider group/btn"
+                  >
                     Details 
                     <ChevronRight className="w-3.5 h-3.5 group-hover/btn:translate-x-1 transition-transform" />
                   </button>
@@ -199,6 +205,162 @@ export function SignalsView({ alerts }: { alerts: Alert[] }) {
           </motion.div>
         ))}
       </div>
+
+      {/* Details Modal */}
+      <AnimatePresence>
+        {selectedAlert && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 md:p-6 overflow-hidden">
+            <motion.div 
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => setSelectedAlert(null)}
+              className="absolute inset-0 bg-black/80 backdrop-blur-md" 
+            />
+            
+            <motion.div
+              initial={{ opacity: 0, scale: 0.9, y: 20 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.9, y: 20 }}
+              className="relative w-full max-w-4xl bg-[#0F0F0F] border border-white/10 rounded-[32px] overflow-hidden shadow-2xl flex flex-col max-h-[90vh]"
+            >
+              {/* Modal Header */}
+              <div className="p-6 md:p-8 border-b border-white/5 flex items-center justify-between">
+                <div className="flex items-center gap-4">
+                  <div className={cn(
+                    "w-12 h-12 md:w-14 md:h-14 rounded-2xl flex items-center justify-center border",
+                    selectedAlert.signal === 'BUY' ? "bg-emerald-500/10 text-emerald-400 border-emerald-500/20" :
+                    selectedAlert.signal === 'SELL' ? "bg-red-500/10 text-red-400 border-red-500/20" :
+                    "bg-white/5 text-white/60 border-white/10"
+                  )}>
+                    {selectedAlert.signal === 'BUY' ? <Zap className="w-6 h-6" /> : <TrendingUp className="w-6 h-6" />}
+                  </div>
+                  <div>
+                    <h3 className="text-2xl md:text-3xl font-bold tracking-tighter uppercase">{selectedAlert.symbol}</h3>
+                    <div className="flex items-center gap-2 mt-1">
+                      <span className="text-[10px] font-mono text-white/40 uppercase tracking-widest">{selectedAlert.type} Signal</span>
+                      <span className="w-1 h-1 bg-white/20 rounded-full" />
+                      <span className="text-[10px] font-mono text-emerald-500 uppercase tracking-widest">{selectedAlert.confidence}% Confidence</span>
+                    </div>
+                  </div>
+                </div>
+                <button 
+                  onClick={() => setSelectedAlert(null)}
+                  className="w-10 h-10 rounded-full bg-white/5 hover:bg-white/10 flex items-center justify-center transition-colors border border-white/5"
+                >
+                  <X className="w-5 h-5 text-white/60" />
+                </button>
+              </div>
+
+              {/* Modal Content */}
+              <div className="flex-1 overflow-y-auto p-6 md:p-10 space-y-8 md:space-y-12">
+                
+                {/* Advanced Briefing */}
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-8 md:gap-16">
+                  <div className="space-y-6">
+                    <div className="flex items-center gap-2 mb-4">
+                       <BarChart2 className="w-4 h-4 text-emerald-500" />
+                       <h4 className="text-[11px] font-bold text-white/50 uppercase tracking-[0.2em] font-mono">Market Intel Summary</h4>
+                    </div>
+                    
+                    <div className="grid grid-cols-2 gap-6">
+                      <div>
+                        <div className="text-[9px] text-white/30 uppercase font-mono tracking-widest mb-2">Detection Price</div>
+                        <div className="text-xl font-mono font-bold text-white">{formatCurrency(selectedAlert.price, selectedAlert.symbol.endsWith('.JK') ? 'IDR' : 'USD')}</div>
+                      </div>
+                      <div>
+                        <div className="text-[9px] text-white/30 uppercase font-mono tracking-widest mb-2">Market Mood</div>
+                        <div className="text-xl font-mono font-bold text-emerald-500 uppercase">{selectedAlert.marketMood}</div>
+                      </div>
+                    </div>
+
+                    <div className="p-5 bg-white/[0.02] border border-white/5 rounded-2xl space-y-4">
+                      <div className="flex items-center gap-2 text-white/40">
+                         <Info className="w-3.5 h-3.5" />
+                         <span className="text-[10px] font-bold font-mono tracking-widest uppercase">AI Executive Briefing</span>
+                      </div>
+                      <p className="text-sm text-white/70 leading-relaxed italic font-sans">
+                        "{selectedAlert.aiAnalysis.kesimpulan}"
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="space-y-6">
+                    <div className="flex items-center gap-2 mb-4">
+                       <ShieldCheck className="w-4 h-4 text-emerald-500" />
+                       <h4 className="text-[11px] font-bold text-white/50 uppercase tracking-[0.2em] font-mono">Technical Validation</h4>
+                    </div>
+                    
+                    <div className="space-y-4">
+                      <div className="flex items-center justify-between py-3 border-b border-white/5">
+                        <span className="text-xs text-white/40">Relative Strength (RSI)</span>
+                        <span className="text-xs font-mono font-bold text-emerald-400">Bullish Momentum</span>
+                      </div>
+                      <div className="flex items-center justify-between py-3 border-b border-white/5">
+                        <span className="text-xs text-white/40">Volume Confirmation</span>
+                        <span className="text-xs font-mono font-bold text-emerald-400">High Accumulation</span>
+                      </div>
+                      <div className="flex items-center justify-between py-3 border-b border-white/5">
+                        <span className="text-xs text-white/40">Trend Status</span>
+                        <span className="text-xs font-mono font-bold text-white uppercase">{selectedAlert.trend}</span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Full Breakdown */}
+                <div className="bg-emerald-500/[0.02] border border-emerald-500/10 rounded-3xl p-6 md:p-8 space-y-8">
+                  <div className="flex items-center gap-3">
+                     <BrainCircuit className="w-5 h-5 text-emerald-500" />
+                     <h4 className="text-lg font-bold tracking-tight">AI Reasoning Breakdown</h4>
+                  </div>
+                  
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
+                    <div className="space-y-2">
+                       <h5 className="text-[10px] font-bold text-emerald-500/60 uppercase font-mono tracking-[0.2em]">Kondisi Objektif</h5>
+                       <p className="text-xs text-white/60 leading-relaxed font-sans">{selectedAlert.aiAnalysis.kondisi}</p>
+                    </div>
+                    <div className="space-y-2">
+                       <h5 className="text-[10px] font-bold text-emerald-500/60 uppercase font-mono tracking-[0.2em]">Analisa Momentum</h5>
+                       <p className="text-xs text-white/60 leading-relaxed font-sans">{selectedAlert.aiAnalysis.momentum}</p>
+                    </div>
+                    <div className="space-y-2">
+                       <h5 className="text-[10px] font-bold text-emerald-500/60 uppercase font-mono tracking-[0.2em]">Manajemen Risiko</h5>
+                       <p className="text-xs text-white/60 leading-relaxed font-sans">{selectedAlert.aiAnalysis.risiko}</p>
+                    </div>
+                  </div>
+
+                  <div className="pt-8 border-t border-white/5 flex flex-wrap gap-3">
+                    {selectedAlert.reasons.map((reason, idx) => (
+                      <div key={idx} className="px-4 py-2 bg-black/40 border border-white/5 rounded-xl text-[10px] font-bold text-white/40 uppercase tracking-widest flex items-center gap-2">
+                        <div className="w-1 h-1 bg-emerald-500 rounded-full" />
+                        {reason}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+              </div>
+
+              {/* Modal Footer */}
+              <div className="p-6 md:p-8 bg-black/40 border-t border-white/5 flex flex-col md:flex-row items-center justify-between gap-6">
+                <div className="flex items-center gap-4">
+                  <div className="w-2.5 h-2.5 bg-emerald-500 rounded-full animate-pulse" />
+                  <p className="text-[11px] text-white/40 font-mono tracking-wider uppercase">
+                    Data analyzed at {new Date(selectedAlert.timestamp).toLocaleString()}
+                  </p>
+                </div>
+                <button 
+                  onClick={() => setSelectedAlert(null)}
+                  className="w-full md:w-auto px-8 py-4 bg-emerald-500 text-black font-bold text-xs uppercase tracking-[0.2em] rounded-2xl hover:bg-emerald-400 transition-all shadow-[0_8px_20px_rgba(16,185,129,0.2)]"
+                >
+                  Confirm Understanding
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }

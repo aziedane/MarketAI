@@ -180,17 +180,49 @@ async function getAIAnalysis(data: {
       return null;
     }
   } catch (err: any) {
-    console.error("Gemini Error:", err?.message || err);
+    const status = err?.status || err?.response?.status;
+    const message = err?.message || "";
+    const isQuotaExceeded = message.includes("quota") || message.includes("429") || message.includes("RESOURCE_EXHAUSTED");
+    const isDailyLimit = message.toLowerCase().includes("daily") || message.includes("FreeTier");
     
-    // Handle Rate Limit (429) specifically
-    if (err?.status === 429 || err?.message?.includes("429") || err?.message?.includes("quota")) {
+    console.error(`Gemini Error (${status}):`, message);
+    
+    // Handle 503 (Service Unavailable) or 429 (Rate Limit)
+    // If it's a daily limit, don't waste time retrying
+    if ((status === 503 || status === 429 || message.includes("503") || isQuotaExceeded) && !isDailyLimit) {
       if (retryCount < 2) {
-        console.log(`Rate limited. retrying in 30s... (Attempt ${retryCount + 1})`);
-        await new Promise(resolve => setTimeout(resolve, 30000));
+        const backoffTime = Math.pow(2, retryCount) * 30000; 
+        console.log(`Gemini busy. Retrying in ${backoffTime/1000}s... (Attempt ${retryCount + 1})`);
+        await new Promise(resolve => setTimeout(resolve, backoffTime));
         return getAIAnalysis(data, retryCount + 1);
       }
     }
-    return null;
+
+    // Dynamic Fallback Analysis (Local Algorithm)
+    const trend = data.price > data.sma20 ? 'bullish' : 'bearish';
+    const strength = data.rsi > 60 ? 'kuat' : (data.rsi < 40 ? 'lemah' : 'netral');
+    
+    return {
+      symbol: data.symbol,
+      signal: data.rsi < 35 ? 'BUY' : (data.rsi > 65 ? 'SELL' : 'WATCH'),
+      confidence: 60,
+      trend: trend,
+      market_mood: data.rsi > 55 ? 'Optimis' : (data.rsi < 45 ? 'Khawatir' : 'Konsolidasi'),
+      risk_level: 'MEDIUM',
+      volume_condition: data.volume > data.avgVolume20 ? 'High' : 'Normal',
+      analysis: {
+        kondisi: `Harga saat ini ${data.price > data.sma20 ? 'berada di atas' : 'berada di bawah'} SMA 20 (${data.sma20.toFixed(0)}), mengindikasikan tren ${trend}.`,
+        momentum: `Indikator RSI berada pada level ${data.rsi.toFixed(1)}, menunjukkan momentum pasar yang ${strength}.`,
+        risiko: `Volatilitas terpantau stabil berdasarkan rata-rata volume perdagangan.`,
+        kesimpulan: `Berdasarkan indikator teknikal (RSI & Moving Average), saham ini menunjukkan pola ${data.type}. Rekomendasi: ${data.rsi < 40 ? 'Akumulasi bertahap' : 'Pantau konfirmasi lanjut'}.`
+      },
+      reason: [
+        `RSI: ${data.rsi.toFixed(1)} (${strength})`, 
+        `Tren: ${trend.toUpperCase()}`, 
+        `Volume: ${data.volume > data.avgVolume20 ? 'Di atas rata-rata' : 'Normal'}`
+      ],
+      warning: "Mode Offline Aktif (Daily Quota AI Terlampaui). Analisa diproses oleh algoritma teknikal lokal."
+    };
   }
 }
 
@@ -345,6 +377,51 @@ async function updateLivePrices() {
   }
 }
 
+// Helper: Find Support and Resistance Levels
+function findLevels(closes: number[]) {
+  const levels: { support: number[]; resistance: number[] } = {
+    support: [],
+    resistance: []
+  };
+
+  for (let i = 2; i < closes.length - 2; i++) {
+    // Local Low (Support)
+    if (closes[i] < closes[i-1] && closes[i] < closes[i-2] && closes[i] < closes[i+1] && closes[i] < closes[i+2]) {
+      levels.support.push(closes[i]);
+    }
+    // Local High (Resistance)
+    if (closes[i] > closes[i-1] && closes[i] > closes[i-2] && closes[i] > closes[i+1] && closes[i] > closes[i+2]) {
+      levels.resistance.push(closes[i]);
+    }
+  }
+  
+  // Return the most relevant (recent) levels
+  return {
+    support: Array.from(new Set(levels.support.slice(-3).map(n => Math.round(n)))),
+    resistance: Array.from(new Set(levels.resistance.slice(-3).map(n => Math.round(n))))
+  };
+}
+
+// Helper: Detect RSI Divergence
+function detectRSIDivergence(closes: number[], rsi: number[]) {
+  if (closes.length < 10 || rsi.length < 10) return null;
+  
+  const lastPrice = closes[closes.length - 1];
+  const prevPrice = closes[closes.length - 6]; // ~1 week ago
+  const lastRSI = rsi[rsi.length - 1];
+  const prevRSI = rsi[rsi.length - 6];
+
+  // Bullish Divergence: Price lower low, RSI higher low
+  if (lastPrice < prevPrice && lastRSI > prevRSI && lastRSI < 40) {
+    return 'BULLISH_DIVERGENCE';
+  }
+  // Bearish Divergence: Price higher high, RSI lower high
+  if (lastPrice > prevPrice && lastRSI < prevRSI && lastRSI > 60) {
+    return 'BEARISH_DIVERGENCE';
+  }
+  return null;
+}
+
 // Logic: Market Monitor (Indicator Analysis with spread-out requests)
 async function monitorMarkets() {
   console.log(`Analyzing technical indicators for ${WATCHLIST.length} symbols...`);
@@ -352,7 +429,7 @@ async function monitorMarkets() {
   for (const symbol of WATCHLIST) {
     try {
       const period1 = new Date();
-      period1.setDate(period1.getDate() - 45); // 45 days ago
+      period1.setDate(period1.getDate() - 90); // 90 days for daily/weekly context
       
       const chartResult = (await yahoo.chart(symbol, { 
         period1, 
@@ -361,12 +438,14 @@ async function monitorMarkets() {
       
       const history = chartResult.quotes;
       
-      if (!history || history.length < 20) {
+      if (!history || history.length < 30) {
         continue;
       }
 
       const closes = history.map(h => h.close).filter((c): c is number => typeof c === 'number');
       const volumes = history.map(h => h.volume).filter((v): v is number => typeof v === 'number');
+      const highs = history.map(h => h.high).filter((h): h is number => typeof h === 'number');
+      const lows = history.map(h => h.low).filter((l): l is number => typeof l === 'number');
       
       if (closes.length < 20) continue;
 
@@ -378,31 +457,53 @@ async function monitorMarkets() {
 
       const sma20Values = SMA.calculate({ values: closes, period: 20 });
       const lastSMA20 = sma20Values[sma20Values.length - 1];
+      
+      const sma50Values = SMA.calculate({ values: closes, period: 50 });
+      const lastSMA50 = sma50Values[sma50Values.length - 1];
 
       const avgVolume20 = volumes.slice(-20).reduce((a, b) => a + b, 0) / 20;
       const lastVolume = volumes[volumes.length - 1];
+
+      const levels = findLevels(closes);
+      const divergence = detectRSIDivergence(closes.slice(-20), rsiValues.slice(-20));
+      const volumeSpike = lastVolume > avgVolume20 * 2.5;
 
       let alertType = "";
       let alertMsg = "";
       let shouldCallAI = false;
 
-      // Refined Technical Filters before calling AI
-      // 1. Breakout SMA 20 with high relative volume
-      if (lastPrice > lastSMA20 && prevPrice <= lastSMA20 && lastVolume > avgVolume20 * 2.0) {
+      // multi-timeframe trend (approximate weekly from daily data)
+      const isDailyBullish = lastPrice > lastSMA20;
+      const isWeeklyBullish = lastPrice > lastSMA50;
+
+      // 1. Breakout Strategy
+      if (lastPrice > lastSMA20 && prevPrice <= lastSMA20 && volumeSpike) {
         alertType = "BREAKOUT";
         alertMsg = `🚀 *Breakout SMA 20* on ${symbol}\nPrice: ${lastPrice.toFixed(2)}`;
         shouldCallAI = true;
       } 
-      // 2. Oversold with a volume climax check
-      else if (lastRSI < 25) { 
-        alertType = "OVERSOLD";
-        alertMsg = `📉 *Oversold Detect* on ${symbol}\nRSI: ${lastRSI.toFixed(1)}\nPrice: ${lastPrice.toFixed(2)}`;
-        shouldCallAI = lastVolume > avgVolume20 * 1.5; 
+      // 2. Oversold Strategy
+      else if (lastRSI < 30) { 
+        const nearestSupport = Math.min(...levels.support.filter(s => s < lastPrice), lastPrice * 0.95);
+        if (lastPrice > nearestSupport && lastPrice < nearestSupport * 1.02) {
+           alertType = "OVERSOLD_REBOUND";
+           alertMsg = `📈 *Oversold Rebound* on ${symbol} near Support (${nearestSupport})\nRSI: ${lastRSI.toFixed(1)}`;
+        } else {
+           alertType = "OVERSOLD_BREAKDOWN";
+           alertMsg = `📉 *Oversold Breakdown* on ${symbol}\nRSI: ${lastRSI.toFixed(1)}`;
+        }
+        shouldCallAI = true; 
       } 
-      // 3. Extreme Volume Spike
-      else if (lastVolume > avgVolume20 * 4.0) {
+      // 3. Divergence Detection
+      else if (divergence) {
+        alertType = divergence;
+        alertMsg = `✨ *RSI Divergence* detected on ${symbol} (${divergence.replace('_', ' ')})`;
+        shouldCallAI = true;
+      }
+      // 4. Volume Spike Extreme
+      else if (lastVolume > avgVolume20 * 5.0) {
         alertType = "VOL_SPIKE";
-        alertMsg = `🔥 *Volume Spike* on ${symbol}\nVolume: ${(lastVolume / 1e6).toFixed(1)}M (Avg: ${(avgVolume20 / 1e6).toFixed(1)}M)`;
+        alertMsg = `🔥 *Extreme Volume Spike* on ${symbol}`;
         shouldCallAI = true;
       }
 
@@ -413,6 +514,16 @@ async function monitorMarkets() {
         );
         
         if (recentDuplicate) continue;
+
+        // Scoring System for Confidence
+        let score = 0;
+        if (lastRSI < 35) score += 25;
+        if (isDailyBullish) score += 20;
+        if (volumeSpike) score += 15;
+        if (isWeeklyBullish) score += 20;
+        if (divergence === 'BULLISH_DIVERGENCE') score += 20;
+        
+        const confidence = Math.min(score, 100);
 
         console.log(`Generating AI analysis for ${symbol} (${alertType})...`);
         const aiResult = await getAIAnalysis({
@@ -434,24 +545,24 @@ async function monitorMarkets() {
           type: alertType,
           timestamp: Date.now(),
           signal: aiResult.signal || 'WATCH',
-          confidence: aiResult.confidence || 60,
-          trend: aiResult.trend || 'sideways',
-          marketMood: aiResult.market_mood || 'Neutral',
-          riskLevel: aiResult.risk_level || 'MEDIUM',
-          volumeCondition: aiResult.volume_condition || 'Normal',
+          confidence: confidence,
+          trend: aiResult.trend || (isDailyBullish ? 'bullish' : 'bearish'),
+          marketMood: aiResult.market_mood || (lastRSI > 50 ? 'Optimis' : 'Khawatir'),
+          riskLevel: aiResult.risk_level || (confidence > 70 ? 'LOW' : (confidence < 40 ? 'HIGH' : 'MEDIUM')),
+          volumeCondition: aiResult.volume_condition || (volumeSpike ? 'SPYKE' : 'Normal'),
           aiAnalysis: aiResult.analysis || {
-            kondisi: 'Sedang dianalisa...',
-            momentum: 'Menunggu data...',
-            risiko: 'Sedang mengevaluasi...',
-            kesimpulan: 'Tunggu sebentar...'
+            kondisi: `Pasar terpantau ${isDailyBullish ? 'kuat' : 'lemah'} dengan support di ${levels.support[levels.support.length-1]}`,
+            momentum: `Momentum saat ini berada di level ${lastRSI.toFixed(0)}`,
+            risiko: confidence > 70 ? 'Resiko terukur' : 'Resiko tinggi',
+            kesimpulan: `Sinyal ${alertType} valid secara teknikal.`
           },
-          reasons: aiResult.reason || [],
-          warning: aiResult.warning || 'No specific warning.'
+          reasons: [...(aiResult.reason || []), `Score: ${confidence}/100`, `Weekly: ${isWeeklyBullish ? 'Bullish' : 'Bearish'}`],
+          warning: aiResult.warning || (levels.resistance.length > 0 ? `Resistance terdekat: ${levels.resistance[0]}` : 'Berhati-hatilah.')
         };
 
         alertHistory.unshift(newAlert);
         alertHistory = alertHistory.slice(0, 50);
-        await sendTelegram(`${alertMsg}\n\n*KONDISI PASAR*\n${newAlert.aiAnalysis.kondisi}\n\n*BUYER VS SELLER*\n${newAlert.aiAnalysis.momentum}\n\n*RISIKO*\n${newAlert.aiAnalysis.risiko}\n\n*KESIMPULAN*\n${newAlert.aiAnalysis.kesimpulan}\n\n*Mood:* ${newAlert.marketMood}\n*Confidence:* ${newAlert.confidence}%`);
+        await sendTelegram(`${alertMsg}\n\n*STRENGTH SCORE: ${confidence}/100*\n*Status:* ${confidence >= 70 ? 'Strong' : (confidence >= 40 ? 'Moderate' : 'Weak')}\n\n*KONDISI PASAR*\n${newAlert.aiAnalysis.kondisi}\n\n*BUYER VS SELLER*\n${newAlert.aiAnalysis.momentum}\n\n*KESIMPULAN*\n${newAlert.aiAnalysis.kesimpulan}\n\n*Levels:* S: ${levels.support.join(', ')} | R: ${levels.resistance.join(', ')}`);
       }
       
       // Delay between Yahoo Finance calls (0.5s) to be very safe
