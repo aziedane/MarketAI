@@ -358,7 +358,7 @@ async function monitorMarkets() {
       const history = (await yahoo.historical(symbol, { 
         period1, 
         interval: '1d' 
-      })) as any[];
+      }, { validateOptions: false })) as any[];
       
       if (!history || history.length < 20) {
         continue;
