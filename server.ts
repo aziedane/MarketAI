@@ -2,8 +2,25 @@ import express from "express";
 import path from "path";
 import cors from "cors";
 import { createServer as createViteServer } from "vite";
-import YahooFinance from "yahoo-finance2";
-const yahoo = new YahooFinance();
+import yahooFinance from "yahoo-finance2";
+
+/**
+ * Robust yahoo-finance2 initialization.
+ * Handles differences between ESM (tsx) and bundled CJS (prod) environments.
+ */
+const yahoo = (function() {
+  // @ts-ignore
+  const base = yahooFinance.default || yahooFinance;
+  if (typeof base === 'function') {
+    try {
+      return new (base as any)();
+    } catch (e) {
+      return base;
+    }
+  }
+  return base;
+})();
+
 import { RSI, SMA } from "technicalindicators";
 import axios from "axios";
 import dotenv from "dotenv";
